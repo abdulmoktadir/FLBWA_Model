@@ -70,11 +70,6 @@ st.markdown("""
         color: #475569;
     }
 
-    div[data-testid="stDataFrame"] {
-        border-radius: 12px;
-        overflow: hidden;
-    }
-
     .stButton > button {
         width: 100%;
         border-radius: 12px;
@@ -90,6 +85,16 @@ st.markdown("""
         border-radius: 12px;
         padding: 0.75rem 1rem;
         font-weight: 700;
+    }
+
+    .top-factor {
+        padding: 0.9rem 1rem;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+        border: 1px solid #86efac;
+        color: #14532d;
+        font-weight: 700;
+        margin-top: 0.4rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -115,9 +120,9 @@ def scalar_divide_tfn(a, tfn):
     a / B = (a/u, a/m, a/l)
     """
     return np.column_stack([
-        a / tfn[:, 2],  # l = a/u
-        a / tfn[:, 1],  # m = a/m
-        a / tfn[:, 0],  # u = a/l
+        a / tfn[:, 2],
+        a / tfn[:, 1],
+        a / tfn[:, 0],
     ])
 
 def defuzzify_weighted(tfn):
@@ -128,10 +133,6 @@ def defuzzify_weighted(tfn):
     return (tfn[:, 0] + 4 * tfn[:, 1] + tfn[:, 2]) / 6
 
 def make_excel_file(input_df, tfn_df, influence_df, fuzzy_weight_df, result_df):
-    """
-    Export results to Excel using openpyxl.
-    This avoids the xlsxwriter dependency error on Streamlit Cloud.
-    """
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         input_df.to_excel(writer, sheet_name="Input", index=False)
@@ -141,6 +142,11 @@ def make_excel_file(input_df, tfn_df, influence_df, fuzzy_weight_df, result_df):
         result_df.to_excel(writer, sheet_name="Results", index=False)
     output.seek(0)
     return output.getvalue()
+
+def highlight_top_factor(row):
+    if row["Rank"] == 1:
+        return ["background-color: #dcfce7; font-weight: 700; color: #14532d;"] * len(row)
+    return [""] * len(row)
 
 # ============================================================
 # Sidebar
@@ -164,9 +170,22 @@ theta = st.sidebar.number_input(
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ℹ️ Input Guide")
 st.sidebar.info(
-    "Use numeric Qi values like your Excel workbook.\n\n"
+    "Edit the table directly.\n\n"
+    "Use numeric Qi values like your Excel workbook.\n"
     "Example: 1, 1, 2, 5, 5"
 )
+
+# ============================================================
+# Default Input Table
+# ============================================================
+factor_names = [f"Factor {i+1}" for i in range(num_factors)]
+default_df = pd.DataFrame({
+    "Factor": factor_names,
+    "Qi": [1.0] * num_factors
+})
+
+for i in range(num_experts):
+    default_df[f"E{i+1}"] = [0.0] * num_factors
 
 # ============================================================
 # Input Section
@@ -174,68 +193,41 @@ st.sidebar.info(
 st.markdown('<div class="section-card">', unsafe_allow_html=True)
 st.subheader("1) Enter Factor Information")
 st.markdown(
-    '<div class="small-note">Define each factor, its Qi level, and expert scores.</div>',
+    '<div class="small-note">Edit the table below for factor names, Qi values, and expert scores.</div>',
     unsafe_allow_html=True
 )
 
-factors = []
-qi_values = []
-expert_data = []
-
-for i in range(num_factors):
-    with st.expander(f"Factor {i+1}", expanded=(i < 2)):
-        row1 = st.columns([2.4, 1.0])
-
-        with row1[0]:
-            factor_name = st.text_input(
-                f"Factor Name {i+1}",
-                value=f"Factor {i+1}",
-                key=f"factor_{i}"
+edited_df = st.data_editor(
+    default_df,
+    use_container_width=True,
+    num_rows="fixed",
+    hide_index=True,
+    column_config={
+        "Factor": st.column_config.TextColumn("Factor", required=True),
+        "Qi": st.column_config.NumberColumn("Qi", min_value=0.0, step=1.0, format="%.2f"),
+        **{
+            f"E{i+1}": st.column_config.NumberColumn(
+                f"E{i+1}", min_value=0.0, step=0.1, format="%.4f"
             )
+            for i in range(num_experts)
+        }
+    },
+    key="lbwa_editor"
+)
 
-        with row1[1]:
-            qi = st.number_input(
-                f"Qi {i+1}",
-                min_value=0.0,
-                value=1.0,
-                step=1.0,
-                key=f"qi_{i}"
-            )
+factor_options = list(range(num_factors))
 
-        row2 = st.columns(num_experts)
-        scores = []
-        for j in range(num_experts):
-            val = row2[j].number_input(
-                f"Expert {j+1}",
-                min_value=0.0,
-                value=0.0,
-                step=0.1,
-                key=f"score_{i}_{j}"
-            )
-            scores.append(val)
-
-        factors.append(factor_name.strip() if factor_name.strip() else f"Factor {i+1}")
-        qi_values.append(qi)
-        expert_data.append(scores)
-
-factor_labels = [
-    f"{i+1}. {factors[i]}"
-    for i in range(num_factors)
-]
+def factor_label_func(idx):
+    val = str(edited_df.iloc[idx]["Factor"]).strip()
+    return f"{idx+1}. {val if val else f'Factor {idx+1}'}"
 
 reference_index = st.selectbox(
     "Reference / Main Factor",
-    options=list(range(num_factors)),
+    options=factor_options,
     index=0,
-    format_func=lambda x: factor_labels[x]
+    format_func=factor_label_func
 )
 
-input_df = pd.DataFrame(expert_data, columns=[f"E{i+1}" for i in range(num_experts)])
-input_df.insert(0, "Qi", qi_values)
-input_df.insert(0, "Factor", factors)
-
-st.markdown("#### Input Preview")
-st.dataframe(input_df, use_container_width=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
@@ -248,11 +240,44 @@ run_model = st.button("▶ Run LBWA Model")
 # ============================================================
 if run_model:
     try:
+        input_df = edited_df.copy()
+
+        # Clean factor names
+        input_df["Factor"] = input_df["Factor"].astype(str).str.strip()
+        input_df["Factor"] = [
+            name if name else f"Factor {i+1}"
+            for i, name in enumerate(input_df["Factor"])
+        ]
+
+        # Validate required columns
+        expected_cols = ["Factor", "Qi"] + [f"E{i+1}" for i in range(num_experts)]
+        missing_cols = [c for c in expected_cols if c not in input_df.columns]
+        if missing_cols:
+            st.error(f"Missing required columns: {missing_cols}")
+            st.stop()
+
+        # Numeric conversion
+        input_df["Qi"] = pd.to_numeric(input_df["Qi"], errors="coerce")
+        for c in [f"E{i+1}" for i in range(num_experts)]:
+            input_df[c] = pd.to_numeric(input_df[c], errors="coerce")
+
+        if input_df["Qi"].isna().any():
+            st.error("Qi contains invalid or empty values.")
+            st.stop()
+
+        if input_df[[f"E{i+1}" for i in range(num_experts)]].isna().any().any():
+            st.error("One or more expert score cells contain invalid or empty values.")
+            st.stop()
+
         data = input_df.iloc[:, 2:].astype(float).values
         qi_arr = input_df["Qi"].astype(float).values
 
         if np.any(qi_arr < 0):
             st.error("Qi values must be non-negative.")
+            st.stop()
+
+        if np.any(data < 0):
+            st.error("Expert scores must be non-negative.")
             st.stop()
 
         if theta <= 0:
@@ -291,22 +316,18 @@ if run_model:
 
         # --------------------------------------------------------
         # Step 3: Reference Weight
-        # wr = 1 / (1 + sum(other influences))
-        # reversed TFN division
         # --------------------------------------------------------
         mask_others = np.ones(num_factors, dtype=bool)
         mask_others[reference_index] = False
 
         ref_weight = np.array([
-            1 / (1 + np.sum(influence[mask_others, 2])),  # l uses upper bounds
-            1 / (1 + np.sum(influence[mask_others, 1])),  # m uses middle bounds
-            1 / (1 + np.sum(influence[mask_others, 0]))   # u uses lower bounds
+            1 / (1 + np.sum(influence[mask_others, 2])),
+            1 / (1 + np.sum(influence[mask_others, 1])),
+            1 / (1 + np.sum(influence[mask_others, 0]))
         ])
 
         # --------------------------------------------------------
         # Step 4: Fuzzy Weights
-        # reference factor = ref_weight
-        # others = ref_weight * influence_i
         # --------------------------------------------------------
         fuzzy_weights = np.zeros_like(influence)
         fuzzy_weights[reference_index] = ref_weight
@@ -338,7 +359,8 @@ if run_model:
         })
 
         result_df["Rank"] = result_df["Normalized Weight"].rank(
-            ascending=False, method="dense"
+            ascending=False,
+            method="dense"
         ).astype(int)
 
         result_df = result_df[
@@ -353,6 +375,9 @@ if run_model:
             result_df=result_df
         )
 
+        top_factor = result_df.iloc[0]["Factor"]
+        top_weight = result_df.iloc[0]["Normalized Weight"]
+
         # ========================================================
         # Summary
         # ========================================================
@@ -360,7 +385,6 @@ if run_model:
         st.subheader("2) Summary")
 
         c1, c2, c3 = st.columns(3)
-
         with c1:
             st.markdown('<div class="metric-card">', unsafe_allow_html=True)
             st.metric("Reference Factor", input_df.iloc[reference_index]["Factor"])
@@ -376,6 +400,11 @@ if run_model:
             st.metric("Sum of Final Weights", f"{normalized_weights.sum():.10f}")
             st.markdown('</div>', unsafe_allow_html=True)
 
+        st.markdown(
+            f'<div class="top-factor">🏆 Highest-ranked factor: {top_factor} '
+            f'&nbsp;&nbsp;|&nbsp;&nbsp; Weight = {top_weight:.6f}</div>',
+            unsafe_allow_html=True
+        )
         st.markdown('</div>', unsafe_allow_html=True)
 
         # ========================================================
@@ -401,7 +430,16 @@ if run_model:
             st.dataframe(fuzzy_weight_df, use_container_width=True)
 
         with tab4:
-            st.dataframe(result_df, use_container_width=True)
+            styled_result = (
+                result_df.style
+                .apply(highlight_top_factor, axis=1)
+                .format({
+                    "Qi": "{:.2f}",
+                    "Crisp Value": "{:.10f}",
+                    "Normalized Weight": "{:.10f}"
+                })
+            )
+            st.dataframe(styled_result, use_container_width=True)
 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -410,8 +448,16 @@ if run_model:
         # ========================================================
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.subheader("4) Weight Distribution")
-        chart_df = result_df.set_index("Factor")[["Normalized Weight"]]
+
+        chart_df = result_df.copy()
+        chart_df["Label"] = np.where(
+            chart_df["Rank"] == 1,
+            "🏆 " + chart_df["Factor"],
+            chart_df["Factor"]
+        )
+        chart_df = chart_df.set_index("Label")[["Normalized Weight"]]
         st.bar_chart(chart_df, use_container_width=True)
+
         st.markdown('</div>', unsafe_allow_html=True)
 
         # ========================================================
