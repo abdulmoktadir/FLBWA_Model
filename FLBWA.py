@@ -40,7 +40,7 @@ best_factor = st.selectbox("Choose the most important factor", factors)
 st.header("Step 3: Assign Levels (L1 = most important)")
 
 levels = {}
-for f in factors:
+for f in sorted_factors:
     levels[f] = st.number_input(f"Level for {f}", min_value=1, step=1)
 
 level_df = pd.DataFrame({
@@ -48,8 +48,14 @@ level_df = pd.DataFrame({
     "Level": list(levels.values())
 })
 
-st.subheader("Assigned Levels")
-st.dataframe(level_df)
+# Sort factors in descending importance (L1 = highest priority)
+sorted_factors = sorted(factors, key=lambda x: levels[x])
+
+st.subheader("Assigned Levels (Sorted by Importance)")
+st.dataframe(level_df.sort_values(by="Level"))
+
+st.write("### Ordered Factors (Most → Least Important)")
+st.write(sorted_factors)
 
 # ============================================================
 # STEP 4: EXPERT INPUT
@@ -59,7 +65,7 @@ st.header("Step 4: Expert Evaluation")
 num_experts = st.number_input("Number of Experts", min_value=1, value=3)
 
 ratings = {}
-for f in factors:
+for f in sorted_factors:
     st.subheader(f"Ratings for {f}")
     ratings[f] = []
     cols = st.columns(num_experts)
@@ -82,7 +88,7 @@ st.header("Step 5: Convert to TFN")
 # m = average value from experts
 # u = maximum value from experts
 TFN = {}
-for f in factors:
+for f in sorted_factors:
     vals = np.array(ratings[f], dtype=float)
     l = np.min(vals)
     m = np.mean(vals)
@@ -96,7 +102,7 @@ st.dataframe(tfn_df)
 
 # Show calculation details for transparency
 st.write("### TFN Calculation Details")
-for f in factors:
+for f in sorted_factors:
     vals = ratings[f]
     st.write(f"{f}: min={min(vals)}, avg={round(np.mean(vals),4)}, max={max(vals)}")
 
@@ -113,7 +119,7 @@ phi = st.number_input("Elasticity coefficient (ϕ)", value=2.1)
 st.header("Step 7: Fuzzy Influence Function")
 
 influence = {}
-for f in factors:
+for f in sorted_factors:
     l, m, u = TFN[f]
     influence[f] = [
         1 / (1 + phi * l),
@@ -123,7 +129,9 @@ for f in factors:
 
 infl_df = pd.DataFrame(influence, index=["l", "m", "u"]).T
 
-st.subheader("Fuzzy Influence Function")
+st.subheader("Fuzzy Influence Function (Ordered Calculation)")
+
+st.write("Note: Factors are processed in descending importance order (based on levels)")
 st.dataframe(infl_df)
 
 # ============================================================
@@ -132,17 +140,21 @@ st.dataframe(infl_df)
 st.header("Step 8: Compute Weights")
 
 # Normalize using best factor
+# Ensure best factor is aligned with sorted structure
+if best_factor not in sorted_factors:
+    st.error("Best factor not found in sorted list")
+
 best_infl = np.array(influence[best_factor])
 
 weights = {}
-for f in factors:
+for f in sorted_factors:
     weights[f] = np.array(influence[f]) / best_infl
 
 # Normalize final weights
 sum_weights = np.sum(list(weights.values()), axis=0)
 
 final_weights = {}
-for f in factors:
+for f in sorted_factors:
     final_weights[f] = weights[f] / sum_weights
 
 weight_df = pd.DataFrame(final_weights, index=["l", "m", "u"]).T
@@ -156,7 +168,7 @@ st.dataframe(weight_df)
 st.header("Step 9: Crisp Weights")
 
 crisp_weights = {}
-for f in factors:
+for f in sorted_factors:
     l, m, u = final_weights[f]
     crisp_weights[f] = (l + m + u) / 3
 
