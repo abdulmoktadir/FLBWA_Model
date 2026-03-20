@@ -1,41 +1,146 @@
-# ============================================================
-# Streamlit App: Fuzzy Level-Based Weight Assessment (LBWA)
-# Corrected to match the Excel workbook logic
-# ============================================================
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 from io import BytesIO
 
-st.set_page_config(page_title="Fuzzy LBWA App", layout="wide")
-st.title("Fuzzy Level-Based Weight Assessment (LBWA)")
+# ============================================================
+# Page Setup
+# ============================================================
+st.set_page_config(
+    page_title="Fuzzy LBWA App",
+    page_icon="📊",
+    layout="wide"
+)
 
-# ------------------------------------------------------------
-# Helper functions
-# ------------------------------------------------------------
+# ============================================================
+# Custom CSS
+# ============================================================
+st.markdown("""
+<style>
+    .main {
+        background: linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
+    }
+
+    .block-container {
+        padding-top: 1.5rem;
+        padding-bottom: 2rem;
+    }
+
+    .hero-box {
+        padding: 1.4rem 1.6rem;
+        border-radius: 18px;
+        background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%);
+        color: white;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.12);
+        margin-bottom: 1.2rem;
+    }
+
+    .hero-title {
+        font-size: 2rem;
+        font-weight: 800;
+        margin-bottom: 0.3rem;
+        letter-spacing: 0.2px;
+    }
+
+    .hero-subtitle {
+        font-size: 1rem;
+        opacity: 0.92;
+    }
+
+    .section-card {
+        background: white;
+        border-radius: 16px;
+        padding: 1.1rem 1.1rem 0.9rem 1.1rem;
+        box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+        border: 1px solid rgba(15, 23, 42, 0.06);
+        margin-bottom: 1rem;
+    }
+
+    .metric-card {
+        background: linear-gradient(135deg, #ffffff 0%, #f7fbff 100%);
+        border: 1px solid rgba(37, 99, 235, 0.15);
+        border-radius: 16px;
+        padding: 1rem 1.1rem;
+        box-shadow: 0 8px 20px rgba(30, 64, 175, 0.08);
+    }
+
+    .small-note {
+        font-size: 0.92rem;
+        color: #475569;
+    }
+
+    div[data-testid="stDataFrame"] {
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    .stButton > button {
+        width: 100%;
+        border-radius: 12px;
+        border: none;
+        padding: 0.75rem 1rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+        color: white;
+    }
+
+    .stDownloadButton > button {
+        width: 100%;
+        border-radius: 12px;
+        padding: 0.75rem 1rem;
+        font-weight: 700;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ============================================================
+# Header
+# ============================================================
+st.markdown("""
+<div class="hero-box">
+    <div class="hero-title">📊 Fuzzy Level-Based Weight Assessment (LBWA)</div>
+    <div class="hero-subtitle">
+        Attractive Streamlit version aligned with your Excel logic:
+        TFN → Fuzzy Influence → Reference Weight → Fuzzy Weights → Defuzzification → Normalization
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ============================================================
+# Helper Functions
+# ============================================================
 def scalar_divide_tfn(a, tfn):
     """
     For positive TFN B = (l, m, u):
     a / B = (a/u, a/m, a/l)
     """
     return np.column_stack([
-        a / tfn[:, 2],  # l = a / u
-        a / tfn[:, 1],  # m = a / m
-        a / tfn[:, 0],  # u = a / l
+        a / tfn[:, 2],  # l = a/u
+        a / tfn[:, 1],  # m = a/m
+        a / tfn[:, 0],  # u = a/l
     ])
 
 def defuzzify_weighted(tfn):
     """
-    Weighted defuzzification used in the Excel file:
+    Weighted defuzzification:
     crisp = (l + 4m + u) / 6
     """
     return (tfn[:, 0] + 4 * tfn[:, 1] + tfn[:, 2]) / 6
 
-# ------------------------------------------------------------
-# Sidebar configuration
-# ------------------------------------------------------------
-st.sidebar.header("Configuration")
+def make_excel_file(input_df, tfn_df, influence_df, fuzzy_weight_df, result_df):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        input_df.to_excel(writer, sheet_name="Input", index=False)
+        tfn_df.to_excel(writer, sheet_name="TFN", index=False)
+        influence_df.to_excel(writer, sheet_name="Influence", index=False)
+        fuzzy_weight_df.to_excel(writer, sheet_name="FuzzyWeights", index=False)
+        result_df.to_excel(writer, sheet_name="Results", index=False)
+    return output.getvalue()
+
+# ============================================================
+# Sidebar
+# ============================================================
+st.sidebar.header("⚙️ Configuration")
 
 num_factors = int(
     st.sidebar.number_input("Number of Factors", min_value=2, value=5, step=1)
@@ -43,7 +148,6 @@ num_factors = int(
 num_experts = int(
     st.sidebar.number_input("Number of Experts", min_value=1, value=5, step=1)
 )
-
 theta = st.sidebar.number_input(
     "Theta (θ)",
     min_value=0.0001,
@@ -52,87 +156,89 @@ theta = st.sidebar.number_input(
     format="%.4f"
 )
 
+st.sidebar.markdown("---")
+st.sidebar.markdown("### ℹ️ Input Guide")
 st.sidebar.info(
-    "Use numeric Qi levels, like your Excel sheet: 1, 1, 2, 5, 5.\n\n"
-    "Choose the reference/main factor below. In your workbook, the first factor "
-    "('Economic') is the reference factor."
+    "Use numeric Qi values like your Excel file.\n\n"
+    "Example: 1, 1, 2, 5, 5"
 )
 
-# ------------------------------------------------------------
-# Input section
-# ------------------------------------------------------------
-st.subheader("Enter Factor Information")
+# ============================================================
+# Input Section
+# ============================================================
+st.markdown('<div class="section-card">', unsafe_allow_html=True)
+st.subheader("1) Enter Factor Information")
+st.markdown('<div class="small-note">Define each factor, its Qi level, and expert scores.</div>', unsafe_allow_html=True)
 
 factors = []
 qi_values = []
 expert_data = []
 
 for i in range(num_factors):
-    st.markdown(f"### Factor {i+1}")
-    c1, c2 = st.columns([2, 1])
+    with st.expander(f"Factor {i+1}", expanded=(i < 2)):
+        row1 = st.columns([2.4, 1.0])
+        with row1[0]:
+            factor_name = st.text_input(
+                f"Factor Name {i+1}",
+                value=f"Factor {i+1}",
+                key=f"factor_{i}"
+            )
+        with row1[1]:
+            qi = st.number_input(
+                f"Qi {i+1}",
+                min_value=0.0,
+                value=1.0,
+                step=1.0,
+                key=f"qi_{i}"
+            )
 
-    with c1:
-        factor_name = st.text_input(
-            f"Factor Name {i+1}",
-            value=f"Factor {i+1}",
-            key=f"factor_{i}"
-        )
+        row2 = st.columns(num_experts)
+        scores = []
+        for j in range(num_experts):
+            val = row2[j].number_input(
+                f"Expert {j+1}",
+                min_value=0.0,
+                value=0.0,
+                step=0.1,
+                key=f"score_{i}_{j}"
+            )
+            scores.append(val)
 
-    with c2:
-        qi = st.number_input(
-            f"Qi (Level) {i+1}",
-            min_value=0.0,
-            value=1.0,
-            step=1.0,
-            key=f"qi_{i}"
-        )
-
-    factors.append(factor_name)
-    qi_values.append(qi)
-
-    cols = st.columns(num_experts)
-    row_vals = []
-    for j in range(num_experts):
-        val = cols[j].number_input(
-            f"E{j+1}",
-            min_value=0.0,
-            value=0.0,
-            step=0.1,
-            key=f"val_{i}_{j}"
-        )
-        row_vals.append(val)
-
-    expert_data.append(row_vals)
+        factors.append(factor_name)
+        qi_values.append(qi)
+        expert_data.append(scores)
 
 factor_labels = [
-    f"{i+1}. {factors[i] if factors[i].strip() else f'Factor {i+1}'}"
+    f"{i+1}. {factors[i].strip() if factors[i].strip() else f'Factor {i+1}'}"
     for i in range(num_factors)
 ]
 
 reference_index = st.selectbox(
     "Reference / Main Factor",
     options=list(range(num_factors)),
-    format_func=lambda x: factor_labels[x],
-    index=0
+    index=0,
+    format_func=lambda x: factor_labels[x]
 )
 
-# ------------------------------------------------------------
-# Build input DataFrame
-# ------------------------------------------------------------
-df = pd.DataFrame(expert_data, columns=[f"E{i+1}" for i in range(num_experts)])
-df.insert(0, "Qi", qi_values)
-df.insert(0, "Factor", factors)
+input_df = pd.DataFrame(expert_data, columns=[f"E{i+1}" for i in range(num_experts)])
+input_df.insert(0, "Qi", qi_values)
+input_df.insert(0, "Factor", factors)
 
-st.subheader("Input Data")
-st.dataframe(df, use_container_width=True)
+st.markdown("#### Input Preview")
+st.dataframe(input_df, use_container_width=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
-# ------------------------------------------------------------
-# Run model
-# ------------------------------------------------------------
-if st.button("Run LBWA Model"):
+# ============================================================
+# Run Button
+# ============================================================
+run_model = st.button("▶ Run LBWA Model")
 
-    data = df.iloc[:, 2:].astype(float).values
-    qi_arr = df["Qi"].astype(float).values
+# ============================================================
+# Processing
+# ============================================================
+if run_model:
+    data = input_df.iloc[:, 2:].astype(float).values
+    qi_arr = input_df["Qi"].astype(float).values
 
     if np.any(qi_arr < 0):
         st.error("Qi values must be non-negative.")
@@ -143,7 +249,7 @@ if st.button("Run LBWA Model"):
         st.stop()
 
     # --------------------------------------------------------
-    # Step 1: TFN = (min, mean, max)
+    # Step 1: TFN
     # --------------------------------------------------------
     tfn = np.column_stack([
         np.min(data, axis=1),
@@ -153,18 +259,12 @@ if st.button("Run LBWA Model"):
 
     tfn_df = pd.DataFrame(tfn, columns=["l", "m", "u"])
     tfn_df.insert(0, "Qi", qi_arr)
-    tfn_df.insert(0, "Factor", df["Factor"])
-
-    st.subheader("1) Triangular Fuzzy Numbers (TFN)")
-    st.dataframe(tfn_df, use_container_width=True)
+    tfn_df.insert(0, "Factor", input_df["Factor"])
 
     # --------------------------------------------------------
-    # Step 2: Fuzzy influence
-    # Excel logic:
-    # denominator_i = (Qi*theta + l, Qi*theta + m, Qi*theta + u)
-    # influence_i = theta / denominator_i
-    # For TFN division:
-    # influence = (theta/(Qiθ+u), theta/(Qiθ+m), theta/(Qiθ+l))
+    # Step 2: Fuzzy Influence
+    # denominator = (Qi*theta + l, Qi*theta + m, Qi*theta + u)
+    # influence = theta / denominator with reversed TFN division
     # --------------------------------------------------------
     denominator_tfn = np.column_stack([
         qi_arr * theta + tfn[:, 0],
@@ -176,31 +276,26 @@ if st.button("Run LBWA Model"):
 
     influence_df = pd.DataFrame(influence, columns=["l", "m", "u"])
     influence_df.insert(0, "Qi", qi_arr)
-    influence_df.insert(0, "Factor", df["Factor"])
-
-    st.subheader("2) Fuzzy Influence Function")
-    st.dataframe(influence_df, use_container_width=True)
+    influence_df.insert(0, "Factor", input_df["Factor"])
 
     # --------------------------------------------------------
-    # Step 3: Reference fuzzy weight
-    # Workbook logic for reference factor r:
-    # wr_l = 1 / (1 + sum(other u-values))
-    # wr_m = 1 / (1 + sum(other m-values))
-    # wr_u = 1 / (1 + sum(other l-values))
+    # Step 3: Reference weight
+    # wr = 1 / (1 + sum(other influences))
+    # with reversed TFN division rule
     # --------------------------------------------------------
     mask_others = np.ones(num_factors, dtype=bool)
     mask_others[reference_index] = False
 
     ref_weight = np.array([
-        1 / (1 + np.sum(influence[mask_others, 2])),  # l uses other u
-        1 / (1 + np.sum(influence[mask_others, 1])),  # m uses other m
-        1 / (1 + np.sum(influence[mask_others, 0]))   # u uses other l
+        1 / (1 + np.sum(influence[mask_others, 2])),  # l from upper bounds
+        1 / (1 + np.sum(influence[mask_others, 1])),  # m from middle
+        1 / (1 + np.sum(influence[mask_others, 0]))   # u from lower bounds
     ])
 
     # --------------------------------------------------------
     # Step 4: Fuzzy weights
-    # Reference factor gets ref_weight directly
-    # Others: weight_i = ref_weight * influence_i
+    # reference factor = ref_weight
+    # others = ref_weight * influence_i
     # --------------------------------------------------------
     fuzzy_weights = np.zeros_like(influence)
     fuzzy_weights[reference_index] = ref_weight
@@ -210,14 +305,10 @@ if st.button("Run LBWA Model"):
             fuzzy_weights[i] = ref_weight * influence[i]
 
     fuzzy_weight_df = pd.DataFrame(fuzzy_weights, columns=["l", "m", "u"])
-    fuzzy_weight_df.insert(0, "Factor", df["Factor"])
-
-    st.subheader("3) Fuzzy Weights")
-    st.dataframe(fuzzy_weight_df, use_container_width=True)
+    fuzzy_weight_df.insert(0, "Factor", input_df["Factor"])
 
     # --------------------------------------------------------
     # Step 5: Defuzzification and normalization
-    # Excel uses: (l + 4m + u) / 6
     # --------------------------------------------------------
     crisp_values = defuzzify_weighted(fuzzy_weights)
     crisp_sum = np.sum(crisp_values)
@@ -229,44 +320,89 @@ if st.button("Run LBWA Model"):
     normalized_weights = crisp_values / crisp_sum
 
     result_df = pd.DataFrame({
-        "Factor": df["Factor"],
+        "Rank": pd.Series(normalized_weights).rank(ascending=False, method="dense").astype(int),
+        "Factor": input_df["Factor"],
         "Qi": qi_arr,
         "Crisp Value": crisp_values,
         "Normalized Weight": normalized_weights
-    })
+    }).sort_values("Normalized Weight", ascending=False).reset_index(drop=True)
 
-    st.subheader("4) Final Results")
-    st.dataframe(result_df, use_container_width=True)
-
-    st.write(f"**Sum of Crisp Values:** {crisp_sum:.10f}")
-    st.write(f"**Sum of Normalized Weights:** {normalized_weights.sum():.10f}")
-
-    # --------------------------------------------------------
-    # Visualization
-    # --------------------------------------------------------
-    st.subheader("Weight Distribution")
-    chart_df = result_df[["Factor", "Normalized Weight"]].set_index("Factor")
-    st.bar_chart(chart_df)
-
-    # --------------------------------------------------------
-    # Export to Excel
-    # --------------------------------------------------------
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df.to_excel(writer, sheet_name="Input", index=False)
-        tfn_df.to_excel(writer, sheet_name="TFN", index=False)
-        influence_df.to_excel(writer, sheet_name="Influence", index=False)
-        fuzzy_weight_df.to_excel(writer, sheet_name="FuzzyWeights", index=False)
-        result_df.to_excel(writer, sheet_name="Results", index=False)
-
-    st.download_button(
-        label="Download Results",
-        data=output.getvalue(),
-        file_name="LBWA_output_corrected.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    excel_data = make_excel_file(
+        input_df=input_df,
+        tfn_df=tfn_df,
+        influence_df=influence_df,
+        fuzzy_weight_df=fuzzy_weight_df,
+        result_df=result_df
     )
 
-# ============================================================
-# Run:
-# streamlit run app.py
-# ============================================================
+    # ========================================================
+    # Result Summary
+    # ========================================================
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("2) Summary")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.metric("Reference Factor", input_df.iloc[reference_index]["Factor"])
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with c2:
+        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.metric("Sum of Crisp Values", f"{crisp_sum:.10f}")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with c3:
+        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.metric("Sum of Final Weights", f"{normalized_weights.sum():.10f}")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ========================================================
+    # Detailed Tables
+    # ========================================================
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("3) Detailed Computation")
+
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "TFN",
+        "Influence",
+        "Fuzzy Weights",
+        "Final Results"
+    ])
+
+    with tab1:
+        st.dataframe(tfn_df, use_container_width=True)
+
+    with tab2:
+        st.dataframe(influence_df, use_container_width=True)
+
+    with tab3:
+        st.dataframe(fuzzy_weight_df, use_container_width=True)
+
+    with tab4:
+        st.dataframe(result_df, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ========================================================
+    # Visualization
+    # ========================================================
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("4) Weight Distribution")
+    chart_df = result_df.set_index("Factor")[["Normalized Weight"]]
+    st.bar_chart(chart_df, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ========================================================
+    # Download
+    # ========================================================
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("5) Export")
+    st.download_button(
+        label="📥 Download Excel Results",
+        data=excel_data,
+        file_name="LBWA_output_styled.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
