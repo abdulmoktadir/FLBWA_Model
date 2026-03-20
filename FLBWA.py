@@ -1,6 +1,6 @@
 # ============================================================
 # Streamlit App: Fuzzy Level-Based Weight Assessment (LBWA)
-# Manual Input Version
+# Corrected to match the Excel workbook logic
 # ============================================================
 
 import streamlit as st
@@ -9,53 +9,89 @@ import numpy as np
 from io import BytesIO
 
 st.set_page_config(page_title="Fuzzy LBWA App", layout="wide")
-
 st.title("Fuzzy Level-Based Weight Assessment (LBWA)")
 
 # ------------------------------------------------------------
-# Helper Function: Scalar ÷ TFN
-# For positive TFN B=(l,m,u):
-# a / B = (a/u, a/m, a/l)
+# Helper functions
 # ------------------------------------------------------------
 def scalar_divide_tfn(a, tfn):
+    """
+    For positive TFN B = (l, m, u):
+    a / B = (a/u, a/m, a/l)
+    """
     return np.column_stack([
         a / tfn[:, 2],  # l = a / u
         a / tfn[:, 1],  # m = a / m
         a / tfn[:, 0],  # u = a / l
     ])
 
-# ------------------------------------------------------------
-# User Inputs
-# ------------------------------------------------------------
-st.sidebar.header("⚙️ Configuration")
-
-num_factors = int(st.sidebar.number_input("Number of Factors", min_value=2, value=5, step=1))
-num_experts = int(st.sidebar.number_input("Number of Experts", min_value=1, value=3, step=1))
-r = st.sidebar.number_input("Elasticity Coefficient (r)", min_value=0.0, value=2.1, step=0.1)
-
-st.subheader("📥 Enter Factor Information")
+def defuzzify_weighted(tfn):
+    """
+    Weighted defuzzification used in the Excel file:
+    crisp = (l + 4m + u) / 6
+    """
+    return (tfn[:, 0] + 4 * tfn[:, 1] + tfn[:, 2]) / 6
 
 # ------------------------------------------------------------
-# Dynamic Input Table
+# Sidebar configuration
 # ------------------------------------------------------------
+st.sidebar.header("Configuration")
+
+num_factors = int(
+    st.sidebar.number_input("Number of Factors", min_value=2, value=5, step=1)
+)
+num_experts = int(
+    st.sidebar.number_input("Number of Experts", min_value=1, value=5, step=1)
+)
+
+theta = st.sidebar.number_input(
+    "Theta (θ)",
+    min_value=0.0001,
+    value=2.1,
+    step=0.1,
+    format="%.4f"
+)
+
+st.sidebar.info(
+    "Use numeric Qi levels, like your Excel sheet: 1, 1, 2, 5, 5.\n\n"
+    "Choose the reference/main factor below. In your workbook, the first factor "
+    "('Economic') is the reference factor."
+)
+
+# ------------------------------------------------------------
+# Input section
+# ------------------------------------------------------------
+st.subheader("Enter Factor Information")
+
 factors = []
-levels = []
+qi_values = []
 expert_data = []
 
 for i in range(num_factors):
     st.markdown(f"### Factor {i+1}")
-    col1, col2 = st.columns(2)
+    c1, c2 = st.columns([2, 1])
 
-    with col1:
-        factor_name = st.text_input(f"Factor Name {i+1}", value=f"Factor {i+1}", key=f"f_{i}")
-    with col2:
-        level = st.selectbox(f"Level {i+1}", [f"L{j}" for j in range(1, 10)], key=f"l_{i}")
+    with c1:
+        factor_name = st.text_input(
+            f"Factor Name {i+1}",
+            value=f"Factor {i+1}",
+            key=f"factor_{i}"
+        )
+
+    with c2:
+        qi = st.number_input(
+            f"Qi (Level) {i+1}",
+            min_value=0.0,
+            value=1.0,
+            step=1.0,
+            key=f"qi_{i}"
+        )
 
     factors.append(factor_name)
-    levels.append(level)
+    qi_values.append(qi)
 
-    exp_vals = []
     cols = st.columns(num_experts)
+    row_vals = []
     for j in range(num_experts):
         val = cols[j].number_input(
             f"E{j+1}",
@@ -64,29 +100,51 @@ for i in range(num_factors):
             step=0.1,
             key=f"val_{i}_{j}"
         )
-        exp_vals.append(val)
+        row_vals.append(val)
 
-    expert_data.append(exp_vals)
+    expert_data.append(row_vals)
 
-# Convert to DataFrame
+factor_labels = [
+    f"{i+1}. {factors[i] if factors[i].strip() else f'Factor {i+1}'}"
+    for i in range(num_factors)
+]
+
+reference_index = st.selectbox(
+    "Reference / Main Factor",
+    options=list(range(num_factors)),
+    format_func=lambda x: factor_labels[x],
+    index=0
+)
+
+# ------------------------------------------------------------
+# Build input DataFrame
+# ------------------------------------------------------------
 df = pd.DataFrame(expert_data, columns=[f"E{i+1}" for i in range(num_experts)])
-df.insert(0, "Level", levels)
+df.insert(0, "Qi", qi_values)
 df.insert(0, "Factor", factors)
 
-st.subheader("📊 Input Data")
+st.subheader("Input Data")
 st.dataframe(df, use_container_width=True)
 
 # ------------------------------------------------------------
-# Run Model
+# Run model
 # ------------------------------------------------------------
-if st.button("▶️ Run LBWA Model"):
+if st.button("Run LBWA Model"):
 
     data = df.iloc[:, 2:].astype(float).values
+    qi_arr = df["Qi"].astype(float).values
 
-    # ------------------------------------------------------------
-    # Step 1: TFN Calculation
-    # TFN = (min, mean, max)
-    # ------------------------------------------------------------
+    if np.any(qi_arr < 0):
+        st.error("Qi values must be non-negative.")
+        st.stop()
+
+    if theta <= 0:
+        st.error("Theta (θ) must be greater than zero.")
+        st.stop()
+
+    # --------------------------------------------------------
+    # Step 1: TFN = (min, mean, max)
+    # --------------------------------------------------------
     tfn = np.column_stack([
         np.min(data, axis=1),
         np.mean(data, axis=1),
@@ -94,76 +152,121 @@ if st.button("▶️ Run LBWA Model"):
     ])
 
     tfn_df = pd.DataFrame(tfn, columns=["l", "m", "u"])
+    tfn_df.insert(0, "Qi", qi_arr)
     tfn_df.insert(0, "Factor", df["Factor"])
 
-    st.subheader("🔺 Triangular Fuzzy Numbers (TFN)")
+    st.subheader("1) Triangular Fuzzy Numbers (TFN)")
     st.dataframe(tfn_df, use_container_width=True)
 
-    # ------------------------------------------------------------
-    # Step 2: Fuzzy Influence Function
-    # influence = 1 / (1 + TFN^r)
-    #
+    # --------------------------------------------------------
+    # Step 2: Fuzzy influence
+    # Excel logic:
+    # denominator_i = (Qi*theta + l, Qi*theta + m, Qi*theta + u)
+    # influence_i = theta / denominator_i
     # For TFN division:
-    # If B = (l, m, u), then 1/B = (1/u, 1/m, 1/l)
-    # ------------------------------------------------------------
-    tfn_power = np.column_stack([
-        np.power(tfn[:, 0], r),
-        np.power(tfn[:, 1], r),
-        np.power(tfn[:, 2], r)
+    # influence = (theta/(Qiθ+u), theta/(Qiθ+m), theta/(Qiθ+l))
+    # --------------------------------------------------------
+    denominator_tfn = np.column_stack([
+        qi_arr * theta + tfn[:, 0],
+        qi_arr * theta + tfn[:, 1],
+        qi_arr * theta + tfn[:, 2]
     ])
 
-    denominator_tfn = tfn_power + 1.0  # (1+l^r, 1+m^r, 1+u^r)
-
-    influence = scalar_divide_tfn(1.0, denominator_tfn)
+    influence = scalar_divide_tfn(theta, denominator_tfn)
 
     influence_df = pd.DataFrame(influence, columns=["l", "m", "u"])
+    influence_df.insert(0, "Qi", qi_arr)
     influence_df.insert(0, "Factor", df["Factor"])
 
-    st.subheader("⚙️ Fuzzy Influence Function")
+    st.subheader("2) Fuzzy Influence Function")
     st.dataframe(influence_df, use_container_width=True)
 
-    # ------------------------------------------------------------
-    # Step 3: Defuzzification
-    # ------------------------------------------------------------
-    crisp = influence.mean(axis=1)
+    # --------------------------------------------------------
+    # Step 3: Reference fuzzy weight
+    # Workbook logic for reference factor r:
+    # wr_l = 1 / (1 + sum(other u-values))
+    # wr_m = 1 / (1 + sum(other m-values))
+    # wr_u = 1 / (1 + sum(other l-values))
+    # --------------------------------------------------------
+    mask_others = np.ones(num_factors, dtype=bool)
+    mask_others[reference_index] = False
 
-    if np.sum(crisp) == 0:
-        st.error("The sum of crisp values is zero, so weights cannot be normalized.")
+    ref_weight = np.array([
+        1 / (1 + np.sum(influence[mask_others, 2])),  # l uses other u
+        1 / (1 + np.sum(influence[mask_others, 1])),  # m uses other m
+        1 / (1 + np.sum(influence[mask_others, 0]))   # u uses other l
+    ])
+
+    # --------------------------------------------------------
+    # Step 4: Fuzzy weights
+    # Reference factor gets ref_weight directly
+    # Others: weight_i = ref_weight * influence_i
+    # --------------------------------------------------------
+    fuzzy_weights = np.zeros_like(influence)
+    fuzzy_weights[reference_index] = ref_weight
+
+    for i in range(num_factors):
+        if i != reference_index:
+            fuzzy_weights[i] = ref_weight * influence[i]
+
+    fuzzy_weight_df = pd.DataFrame(fuzzy_weights, columns=["l", "m", "u"])
+    fuzzy_weight_df.insert(0, "Factor", df["Factor"])
+
+    st.subheader("3) Fuzzy Weights")
+    st.dataframe(fuzzy_weight_df, use_container_width=True)
+
+    # --------------------------------------------------------
+    # Step 5: Defuzzification and normalization
+    # Excel uses: (l + 4m + u) / 6
+    # --------------------------------------------------------
+    crisp_values = defuzzify_weighted(fuzzy_weights)
+    crisp_sum = np.sum(crisp_values)
+
+    if crisp_sum == 0:
+        st.error("The sum of crisp values is zero, so normalization cannot be done.")
         st.stop()
 
-    weights = crisp / np.sum(crisp)
+    normalized_weights = crisp_values / crisp_sum
 
     result_df = pd.DataFrame({
         "Factor": df["Factor"],
-        "Weight": weights
+        "Qi": qi_arr,
+        "Crisp Value": crisp_values,
+        "Normalized Weight": normalized_weights
     })
 
-    st.subheader("🏁 Final Weights")
+    st.subheader("4) Final Results")
     st.dataframe(result_df, use_container_width=True)
 
-    # ------------------------------------------------------------
-    # Visualization
-    # ------------------------------------------------------------
-    st.subheader("📈 Weight Distribution")
-    st.bar_chart(result_df.set_index("Factor"))
+    st.write(f"**Sum of Crisp Values:** {crisp_sum:.10f}")
+    st.write(f"**Sum of Normalized Weights:** {normalized_weights.sum():.10f}")
 
-    # ------------------------------------------------------------
-    # Download Results
-    # ------------------------------------------------------------
+    # --------------------------------------------------------
+    # Visualization
+    # --------------------------------------------------------
+    st.subheader("Weight Distribution")
+    chart_df = result_df[["Factor", "Normalized Weight"]].set_index("Factor")
+    st.bar_chart(chart_df)
+
+    # --------------------------------------------------------
+    # Export to Excel
+    # --------------------------------------------------------
     output = BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        df.to_excel(writer, sheet_name="Input", index=False)
         tfn_df.to_excel(writer, sheet_name="TFN", index=False)
         influence_df.to_excel(writer, sheet_name="Influence", index=False)
-        result_df.to_excel(writer, sheet_name="Weights", index=False)
+        fuzzy_weight_df.to_excel(writer, sheet_name="FuzzyWeights", index=False)
+        result_df.to_excel(writer, sheet_name="Results", index=False)
 
     st.download_button(
-        "📥 Download Results",
+        label="Download Results",
         data=output.getvalue(),
-        file_name="LBWA_output.xlsx",
+        file_name="LBWA_output_corrected.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
 # ============================================================
-# Run using:
+# Run:
 # streamlit run app.py
 # ============================================================
