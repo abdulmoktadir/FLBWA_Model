@@ -244,6 +244,7 @@ for i in range(num_factors):
                 value=0.0,
                 step=0.1,
                 key=f"score_{i}_{j}"
+            )
 edited_df = st.data_editor(
     default_df,
     use_container_width=True,
