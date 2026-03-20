@@ -256,7 +256,7 @@ edited_df = st.data_editor(
         **{
             f"E{i+1}": st.column_config.NumberColumn(
                 f"E{i+1}", min_value=0.0, step=0.1, format="%.4f"
-            )
+            ),
             scores.append(val)
             for i in range(num_experts)
         }
