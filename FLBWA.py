@@ -1,6 +1,8 @@
 # ============================================================
 # Streamlit App: Fuzzy Level-Based Weight Assessment (LBWA)
 # ============================================================
+# Author: ChatGPT
+# Description:
 # Stepwise implementation of Fuzzy LBWA with interactive UI
 # ============================================================
 
@@ -25,6 +27,9 @@ for i in range(num_factors):
     f = st.text_input(f"Factor {i+1}", value=f"F{i+1}")
     factors.append(f)
 
+# Initialize sorted_factors to avoid NameError
+sorted_factors = factors.copy()
+
 # ============================================================
 # STEP 2: SELECT BEST FACTOR
 # ============================================================
@@ -38,7 +43,7 @@ best_factor = st.selectbox("Choose the most important factor", factors)
 st.header("Step 3: Assign Levels (L1 = most important)")
 
 levels = {}
-for f in sorted_factors:
+for f in (sorted_factors if 'sorted_factors' in locals() else factors):
     levels[f] = st.number_input(f"Level for {f}", min_value=1, step=1)
 
 level_df = pd.DataFrame({
@@ -46,7 +51,7 @@ level_df = pd.DataFrame({
     "Level": list(levels.values())
 })
 
-# Sort factors in descending importance (L1 = highest priority)
+# Sort factors in ascending level value (L1 = highest priority)
 sorted_factors = sorted(factors, key=lambda x: levels[x])
 
 st.subheader("Assigned Levels (Sorted by Importance)")
@@ -63,7 +68,7 @@ st.header("Step 4: Expert Evaluation")
 num_experts = st.number_input("Number of Experts", min_value=1, value=3)
 
 ratings = {}
-for f in sorted_factors:
+for f in (sorted_factors if 'sorted_factors' in locals() else factors):
     st.subheader(f"Ratings for {f}")
     ratings[f] = []
     cols = st.columns(num_experts)
@@ -86,7 +91,7 @@ st.header("Step 5: Convert to TFN")
 # m = average value from experts
 # u = maximum value from experts
 TFN = {}
-for f in sorted_factors:
+for f in (sorted_factors if 'sorted_factors' in locals() else factors):
     vals = np.array(ratings[f], dtype=float)
     l = np.min(vals)
     m = np.mean(vals)
@@ -100,7 +105,7 @@ st.dataframe(tfn_df)
 
 # Show calculation details for transparency
 st.write("### TFN Calculation Details")
-for f in sorted_factors:
+for f in (sorted_factors if 'sorted_factors' in locals() else factors):
     vals = ratings[f]
     st.write(f"{f}: min={min(vals)}, avg={round(np.mean(vals),4)}, max={max(vals)}")
 
@@ -124,7 +129,7 @@ r = max(levels.values())
 st.write(f"Maximum level (r): {r}")
 
 influence = {}
-for f in sorted_factors:
+for f in (sorted_factors if 'sorted_factors' in locals() else factors):
     l, m, u = TFN[f]
     influence[f] = [
         (r - l) / r,
@@ -146,7 +151,7 @@ st.header("Step 8: Compute Weights")
 sum_infl = np.sum(list(influence.values()), axis=0)
 
 weights = {}
-for f in sorted_factors:
+for f in (sorted_factors if 'sorted_factors' in locals() else factors):
     weights[f] = np.array(influence[f]) / sum_infl
 
 weight_df = pd.DataFrame(weights, index=["l", "m", "u"]).T
@@ -164,14 +169,14 @@ if best_factor not in sorted_factors:
 best_infl = np.array(influence[best_factor])
 
 weights = {}
-for f in sorted_factors:
+for f in (sorted_factors if 'sorted_factors' in locals() else factors):
     weights[f] = np.array(influence[f]) / best_infl
 
 # Normalize final weights
 sum_weights = np.sum(list(weights.values()), axis=0)
 
 final_weights = {}
-for f in sorted_factors:
+for f in (sorted_factors if 'sorted_factors' in locals() else factors):
     final_weights[f] = weights[f] / sum_weights
 
 weight_df = pd.DataFrame(final_weights, index=["l", "m", "u"]).T
@@ -185,7 +190,7 @@ st.dataframe(weight_df)
 st.header("Step 9: Crisp Weights")
 
 crisp_weights = {}
-for f in sorted_factors:
+for f in (sorted_factors if 'sorted_factors' in locals() else factors):
     l, m, u = final_weights[f]
     crisp_weights[f] = (l + m + u) / 3
 
