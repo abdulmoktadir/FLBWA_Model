@@ -1,6 +1,11 @@
 # ============================================================
 # Streamlit App: Fuzzy Level-Based Weight Assessment (LBWA)
 # ============================================================
+# Author: ChatGPT
+# Description:
+# Stepwise implementation of Fuzzy LBWA with interactive UI
+# ============================================================
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -72,16 +77,28 @@ st.dataframe(rating_df)
 # ============================================================
 st.header("Step 5: Convert to TFN")
 
-# Simple TFN: (min, avg, max)
+# According to your rule:
+# l = minimum value from experts
+# m = average value from experts
+# u = maximum value from experts
 TFN = {}
 for f in factors:
-    vals = np.array(ratings[f])
-    TFN[f] = [vals.min(), vals.mean(), vals.max()]
+    vals = np.array(ratings[f], dtype=float)
+    l = np.min(vals)
+    m = np.mean(vals)
+    u = np.max(vals)
+    TFN[f] = [l, m, u]
 
 tfn_df = pd.DataFrame(TFN, index=["l", "m", "u"]).T
 
 st.subheader("Triangular Fuzzy Numbers (TFN)")
 st.dataframe(tfn_df)
+
+# Show calculation details for transparency
+st.write("### TFN Calculation Details")
+for f in factors:
+    vals = ratings[f]
+    st.write(f"{f}: min={min(vals)}, avg={round(np.mean(vals),4)}, max={max(vals)}")
 
 # ============================================================
 # STEP 6: ELASTICITY COEFFICIENT
