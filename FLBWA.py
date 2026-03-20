@@ -70,11 +70,6 @@ st.markdown("""
         color: #475569;
     }
 
-    div[data-testid="stDataFrame"] {
-        border-radius: 12px;
-        overflow: hidden;
-    }
-
     .stButton > button {
         width: 100%;
         border-radius: 12px;
@@ -125,9 +120,6 @@ def scalar_divide_tfn(a, tfn):
     a / B = (a/u, a/m, a/l)
     """
     return np.column_stack([
-        a / tfn[:, 2],  # l = a/u
-        a / tfn[:, 1],  # m = a/m
-        a / tfn[:, 0],  # u = a/l
         a / tfn[:, 2],
         a / tfn[:, 1],
         a / tfn[:, 0],
@@ -141,10 +133,6 @@ def defuzzify_weighted(tfn):
     return (tfn[:, 0] + 4 * tfn[:, 1] + tfn[:, 2]) / 6
 
 def make_excel_file(input_df, tfn_df, influence_df, fuzzy_weight_df, result_df):
-    """
-    Export results to Excel using openpyxl.
-    This avoids the xlsxwriter dependency error on Streamlit Cloud.
-    """
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         input_df.to_excel(writer, sheet_name="Input", index=False)
@@ -182,7 +170,6 @@ theta = st.sidebar.number_input(
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ℹ️ Input Guide")
 st.sidebar.info(
-    "Use numeric Qi values like your Excel workbook.\n\n"
     "Edit the table directly.\n\n"
     "Use numeric Qi values like your Excel workbook.\n"
     "Example: 1, 1, 2, 5, 5"
@@ -206,45 +193,10 @@ for i in range(num_experts):
 st.markdown('<div class="section-card">', unsafe_allow_html=True)
 st.subheader("1) Enter Factor Information")
 st.markdown(
-    '<div class="small-note">Define each factor, its Qi level, and expert scores.</div>',
     '<div class="small-note">Edit the table below for factor names, Qi values, and expert scores.</div>',
     unsafe_allow_html=True
 )
 
-factors = []
-qi_values = []
-expert_data = []
-
-for i in range(num_factors):
-    with st.expander(f"Factor {i+1}", expanded=(i < 2)):
-        row1 = st.columns([2.4, 1.0])
-
-        with row1[0]:
-            factor_name = st.text_input(
-                f"Factor Name {i+1}",
-                value=f"Factor {i+1}",
-                key=f"factor_{i}"
-            )
-
-        with row1[1]:
-            qi = st.number_input(
-                f"Qi {i+1}",
-                min_value=0.0,
-                value=1.0,
-                step=1.0,
-                key=f"qi_{i}"
-            )
-
-        row2 = st.columns(num_experts)
-        scores = []
-        for j in range(num_experts):
-            val = row2[j].number_input(
-                f"Expert {j+1}",
-                min_value=0.0,
-                value=0.0,
-                step=0.1,
-                key=f"score_{i}_{j}"
-            )
 edited_df = st.data_editor(
     default_df,
     use_container_width=True,
@@ -256,42 +208,26 @@ edited_df = st.data_editor(
         **{
             f"E{i+1}": st.column_config.NumberColumn(
                 f"E{i+1}", min_value=0.0, step=0.1, format="%.4f"
-            ),
-            scores.append(val)
+            )
             for i in range(num_experts)
         }
     },
     key="lbwa_editor"
 )
 
-        factors.append(factor_name.strip() if factor_name.strip() else f"Factor {i+1}")
-        qi_values.append(qi)
-        expert_data.append(scores)
 factor_options = list(range(num_factors))
 
-factor_labels = [
-    f"{i+1}. {factors[i]}"
-    for i in range(num_factors)
-]
 def factor_label_func(idx):
     val = str(edited_df.iloc[idx]["Factor"]).strip()
     return f"{idx+1}. {val if val else f'Factor {idx+1}'}"
 
 reference_index = st.selectbox(
     "Reference / Main Factor",
-    options=list(range(num_factors)),
     options=factor_options,
     index=0,
-    format_func=lambda x: factor_labels[x]
     format_func=factor_label_func
 )
 
-input_df = pd.DataFrame(expert_data, columns=[f"E{i+1}" for i in range(num_experts)])
-input_df.insert(0, "Qi", qi_values)
-input_df.insert(0, "Factor", factors)
-
-st.markdown("#### Input Preview")
-st.dataframe(input_df, use_container_width=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
@@ -380,16 +316,11 @@ if run_model:
 
         # --------------------------------------------------------
         # Step 3: Reference Weight
-        # wr = 1 / (1 + sum(other influences))
-        # reversed TFN division
         # --------------------------------------------------------
         mask_others = np.ones(num_factors, dtype=bool)
         mask_others[reference_index] = False
 
         ref_weight = np.array([
-            1 / (1 + np.sum(influence[mask_others, 2])),  # l uses upper bounds
-            1 / (1 + np.sum(influence[mask_others, 1])),  # m uses middle bounds
-            1 / (1 + np.sum(influence[mask_others, 0]))   # u uses lower bounds
             1 / (1 + np.sum(influence[mask_others, 2])),
             1 / (1 + np.sum(influence[mask_others, 1])),
             1 / (1 + np.sum(influence[mask_others, 0]))
@@ -397,8 +328,6 @@ if run_model:
 
         # --------------------------------------------------------
         # Step 4: Fuzzy Weights
-        # reference factor = ref_weight
-        # others = ref_weight * influence_i
         # --------------------------------------------------------
         fuzzy_weights = np.zeros_like(influence)
         fuzzy_weights[reference_index] = ref_weight
@@ -430,7 +359,6 @@ if run_model:
         })
 
         result_df["Rank"] = result_df["Normalized Weight"].rank(
-            ascending=False, method="dense"
             ascending=False,
             method="dense"
         ).astype(int)
@@ -457,7 +385,6 @@ if run_model:
         st.subheader("2) Summary")
 
         c1, c2, c3 = st.columns(3)
-
         with c1:
             st.markdown('<div class="metric-card">', unsafe_allow_html=True)
             st.metric("Reference Factor", input_df.iloc[reference_index]["Factor"])
@@ -503,7 +430,6 @@ if run_model:
             st.dataframe(fuzzy_weight_df, use_container_width=True)
 
         with tab4:
-            st.dataframe(result_df, use_container_width=True)
             styled_result = (
                 result_df.style
                 .apply(highlight_top_factor, axis=1)
@@ -522,7 +448,6 @@ if run_model:
         # ========================================================
         st.markdown('<div class="section-card">', unsafe_allow_html=True)
         st.subheader("4) Weight Distribution")
-        chart_df = result_df.set_index("Factor")[["Normalized Weight"]]
 
         chart_df = result_df.copy()
         chart_df["Label"] = np.where(
@@ -549,4 +474,4 @@ if run_model:
         st.markdown('</div>', unsafe_allow_html=True)
 
     except Exception as e:
-        st.error(f"An error occurred while running the model: {e}")
+        st.error(f"An error occurred while running the model: {e}")"
