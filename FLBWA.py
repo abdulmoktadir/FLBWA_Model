@@ -1,8 +1,6 @@
 # ============================================================
 # Streamlit App: Fuzzy Level-Based Weight Assessment (LBWA)
 # ============================================================
-# Author: ChatGPT
-# Description:
 # Stepwise implementation of Fuzzy LBWA with interactive UI
 # ============================================================
 
@@ -114,28 +112,47 @@ st.header("Step 6: Elasticity Coefficient")
 phi = st.number_input("Elasticity coefficient (ϕ)", value=2.1)
 
 # ============================================================
-# STEP 7: FUZZY INFLUENCE FUNCTION
+# STEP 7: FUZZY INFLUENCE FUNCTION (EXCEL-BASED CORRECTED)
 # ============================================================
 st.header("Step 7: Fuzzy Influence Function")
+
+# According to your Excel pattern:
+# f = (r - TFN) / r
+# where r = max level
+
+r = max(levels.values())
+st.write(f"Maximum level (r): {r}")
 
 influence = {}
 for f in sorted_factors:
     l, m, u = TFN[f]
     influence[f] = [
-        1 / (1 + phi * l),
-        1 / (1 + phi * m),
-        1 / (1 + phi * u)
+        (r - l) / r,
+        (r - m) / r,
+        (r - u) / r
     ]
 
 infl_df = pd.DataFrame(influence, index=["l", "m", "u"]).T
 
-st.subheader("Fuzzy Influence Function (Ordered Calculation)")
-
-st.write("Note: Factors are processed in descending importance order (based on levels)")
+st.subheader("Fuzzy Influence Function")
 st.dataframe(infl_df)
 
 # ============================================================
-# STEP 8: WEIGHT CALCULATION
+# STEP 8: WEIGHT CALCULATION (EXCEL MATCHED)
+# ============================================================
+st.header("Step 8: Compute Weights")
+
+# Sum of influence values
+sum_infl = np.sum(list(influence.values()), axis=0)
+
+weights = {}
+for f in sorted_factors:
+    weights[f] = np.array(influence[f]) / sum_infl
+
+weight_df = pd.DataFrame(weights, index=["l", "m", "u"]).T
+
+st.subheader("Final Fuzzy Weights")
+st.dataframe(weight_df)
 # ============================================================
 st.header("Step 8: Compute Weights")
 
